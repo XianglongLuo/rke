@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 
 	"github.com/rancher/rke/hosts"
 	"github.com/rancher/rke/log"
@@ -370,7 +371,6 @@ func GenerateEtcdCertificates(ctx context.Context, certs map[string]CertificateP
 		ips = append(ips, ip.String())
 	}
 	sort.Strings(ips)
-
 	for _, host := range etcdHosts {
 		etcdName := GetCrtNameForHost(host, EtcdCertName)
 		if _, ok := certs[etcdName]; ok && certs[etcdName].CertificatePEM != "" && !rotate {
@@ -403,6 +403,7 @@ func GenerateEtcdCertificates(ctx context.Context, certs map[string]CertificateP
 		}
 		certs[etcdName] = ToCertObject(etcdName, "", "", etcdCrt, etcdKey, nil)
 	}
+	deleteUnusedCerts(ctx, certs, EtcdCertName, etcdHosts)
 	return nil
 }
 
@@ -516,6 +517,7 @@ func GenerateKubeletCertificate(ctx context.Context, certs map[string]Certificat
 		}
 		certs[kubeletName] = ToCertObject(kubeletName, "", "", kubeletCrt, kubeletKey, nil)
 	}
+	deleteUnusedCerts(ctx, certs, KubeletCertName, allHosts)
 	return nil
 }
 
@@ -555,6 +557,13 @@ func GenerateRKEServicesCerts(ctx context.Context, certs map[string]CertificateP
 	}
 	if IsKubeletGenerateServingCertificateEnabledinConfig(&rkeConfig) {
 		RKECerts = append(RKECerts, GenerateKubeletCertificate)
+	} else {
+		//Clean up kubelet certs when GenerateServingCertificate is disabled
+		for k := range certs {
+			if strings.HasPrefix(k, KubeletCertName) {
+				delete(certs, k)
+			}
+		}
 	}
 	for _, gen := range RKECerts {
 		if err := gen(ctx, certs, rkeConfig, configPath, configDir, rotate); err != nil {
@@ -587,4 +596,22 @@ func GenerateRKEServicesCSRs(ctx context.Context, certs map[string]CertificatePK
 		}
 	}
 	return nil
+}
+
+func deleteUnusedCerts(ctx context.Context, certs map[string]CertificatePKI, certName string, hosts []*hosts.Host) {
+	log.Infof(ctx, "[certificates] Deleting unused %s certificates", certName)
+	unusedCerts := make(map[string]bool)
+	for k := range certs {
+		if strings.HasPrefix(k, certName) {
+			unusedCerts[k] = true
+		}
+	}
+	for _, host := range hosts {
+		Name := GetCrtNameForHost(host, certName)
+		delete(unusedCerts, Name)
+	}
+	for k := range unusedCerts {
+		log.Infof(ctx, "[certificates] Deleting %s certificate", k)
+		delete(certs, k)
+	}
 }
