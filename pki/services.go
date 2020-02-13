@@ -403,6 +403,7 @@ func GenerateEtcdCertificates(ctx context.Context, certs map[string]CertificateP
 		}
 		certs[etcdName] = ToCertObject(etcdName, "", "", etcdCrt, etcdKey, nil)
 	}
+	log.Debugf(ctx, "Checking and deleting unused etcd certificates, current etcd nodes are: %v", etcdHosts)
 	deleteUnusedCerts(ctx, certs, EtcdCertName, etcdHosts)
 	return nil
 }
@@ -517,6 +518,7 @@ func GenerateKubeletCertificate(ctx context.Context, certs map[string]Certificat
 		}
 		certs[kubeletName] = ToCertObject(kubeletName, "", "", kubeletCrt, kubeletKey, nil)
 	}
+	log.Debugf(ctx, "Checking and deleting unused kubelet certificates, current worker nodes are : %v", allHosts)
 	deleteUnusedCerts(ctx, certs, KubeletCertName, allHosts)
 	return nil
 }
@@ -559,8 +561,10 @@ func GenerateRKEServicesCerts(ctx context.Context, certs map[string]CertificateP
 		RKECerts = append(RKECerts, GenerateKubeletCertificate)
 	} else {
 		//Clean up kubelet certs when GenerateServingCertificate is disabled
+		log.Infof(ctx, "[certificates] GenerateServingCertificate is disabled, checking if there are unused kubelet certificates")
 		for k := range certs {
 			if strings.HasPrefix(k, KubeletCertName) {
+				log.Infof(ctx, "[certificates] Deleting unused kubelet certificate: %s", k)
 				delete(certs, k)
 			}
 		}
@@ -599,7 +603,7 @@ func GenerateRKEServicesCSRs(ctx context.Context, certs map[string]CertificatePK
 }
 
 func deleteUnusedCerts(ctx context.Context, certs map[string]CertificatePKI, certName string, hosts []*hosts.Host) {
-	log.Infof(ctx, "[certificates] Deleting unused %s certificates", certName)
+	log.Infof(ctx, "[certificates] Checking and deleting unused %s certificates", certName)
 	unusedCerts := make(map[string]bool)
 	for k := range certs {
 		if strings.HasPrefix(k, certName) {
@@ -611,7 +615,7 @@ func deleteUnusedCerts(ctx context.Context, certs map[string]CertificatePKI, cer
 		delete(unusedCerts, Name)
 	}
 	for k := range unusedCerts {
-		log.Infof(ctx, "[certificates] Deleting %s certificate", k)
+		log.Infof(ctx, "[certificates] Deleting unused certificate: %s", k)
 		delete(certs, k)
 	}
 }
